@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HardloopAgent — Martin</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0c0f; color: #dde4ee; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+#header { background: #12161b; border-bottom: 1px solid #252d38; padding: 11px 16px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+#header b { font-size: 17px; }
+#header span { background: linear-gradient(135deg,#e8512a,#f0a050); color: #fff; font-size: 11px; font-weight: 700; padding: 4px 11px; border-radius: 20px; }
+#cal-bar { background: #12161b; border-bottom: 1px solid #252d38; padding: 8px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; font-size: 12px; }
+#cal-btn { background: #fff; color: #333; border: none; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+#cal-status { color: #6b7a8d; font-size: 11px; }
+#msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 88%; }
+.msg.user { align-self: flex-end; }
+.msg.ai { align-self: flex-start; }
+.msg-name { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 3px; }
+.msg.user .msg-name { color: #4a90c8; text-align: right; }
+.msg.ai .msg-name { color: #e8512a; }
+.msg-bubble { border-radius: 12px; padding: 10px 13px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.msg.user .msg-bubble { background: #1e2d3d; border: 1px solid #2a3f55; border-bottom-right-radius: 3px; }
+.msg.ai .msg-bubble { background: #12161b; border: 1px solid #252d38; border-bottom-left-radius: 3px; }
+.plan-btn { margin-top: 8px; background: linear-gradient(135deg,#e8512a,#f0a050); border: none; color: #fff; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px; cursor: pointer; display: block; }
+#typing { align-self: flex-start; display: none; }
+#typing .msg-bubble { display: flex; gap: 5px; align-items: center; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #6b7a8d; animation: b 1.2s infinite; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes b { 0%,100%{opacity:.3}50%{opacity:1} }
+#bottom { background: #12161b; border-top: 1px solid #252d38; padding: 8px 14px 16px; flex-shrink: 0; }
+#quick { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; padding-bottom: 2px; }
+#quick button { flex-shrink: 0; background: #1a2028; border: 1px solid #252d38; color: #6b7a8d; font-size: 11px; padding: 5px 11px; border-radius: 16px; cursor: pointer; white-space: nowrap; }
+#input-row { display: flex; gap: 8px; }
+textarea { flex: 1; background: #1a2028; border: 1px solid #252d38; color: #dde4ee; font-size: 13px; padding: 9px 12px; border-radius: 10px; resize: none; font-family: system-ui; outline: none; }
+textarea:focus { border-color: #e8512a; }
+#send { background: linear-gradient(135deg,#e8512a,#f0a050); border: none; color: #fff; font-weight: 800; font-size: 20px; padding: 0 15px; border-radius: 10px; cursor: pointer; }
+#send:disabled { background: #1a2028; color: #6b7a8d; cursor: default; }
+::-webkit-scrollbar { width: 2px; }
+::-webkit-scrollbar-thumb { background: #252d38; }
+</style>
+</head>
+<body>
+<div id="header">
+  <b>Hardloop<span style="background:none;color:#e8512a;padding:0;font-size:17px">Agent</span></b>
+  <span id="countdown">🎯 ...d → 31 mei</span>
+</div>
+<div id="cal-bar">
+  <button id="cal-btn" onclick="connectCalendar()">📅 Koppel Google Agenda</button>
+  <span id="cal-status">Niet gekoppeld</span>
+</div>
+<div id="msgs">
+  <div class="msg ai">
+    <div class="msg-name">Coach</div>
+    <div class="msg-bubble">Hoi Martin! 🏃 Ik ben je hardloopcoach.
+
+Koppel je Google Agenda bovenaan — dan kan ik trainingen direct voor je inplannen!
+
+Of stel me gewoon een vraag over je training, voeding of herstel.</div>
+  </div>
+  <div id="typing" class="msg ai">
+    <div class="msg-name">Coach</div>
+    <div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+  </div>
+</div>
+<div id="bottom">
+  <div id="quick">
+    <button onclick="send('Maak een trainingsschema voor de komende week richting 31 mei en plan deze in mijn agenda')">📅 Plan schema in agenda</button>
+    <button onclick="send('Wat moet ik eten op wedstrijddag 31 mei?')">🍌 Wedstrijddag</button>
+    <button onclick="send('Wanneer gebruik ik mijn sportdrank?')">💧 Sportdrank</button>
+    <button onclick="send('Hoe voorkom ik blessures?')">🦵 Blessures</button>
+    <button onclick="send('Opbouw schema richting 31 mei')">📈 Schema</button>
+  </div>
+  <div id="input-row">
+    <textarea id="inp" rows="2" placeholder="Stel een vraag of plak Garmin/Strava data..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+    <button id="send" onclick="send()">↑</button>
+  </div>
+</div>
+<script>
+const SYSTEM = `Je bent een persoonlijke hardloopcoach voor Martin.
+Doel: 10K op 31 mei 2026. Niveau 50-60 min. Tempo X ~5:30 min/km.
+Suzanne Brummel methode: 80% rustig (zone 1/2), 20% hard (zone 4/5). Geen zone 3. Max +10%/week.
+Sportdrank 500ml: 40g suiker, 10g honing, zout, Mg 150mg, Creatine 3g, BCAA 2g, frambozensiroop. Gebruik bij trainingen >45 min.
+Antwoord altijd in het Nederlands. Kort en scanbaar. Gebruik opsommingen.
+
+Als Martin vraagt om trainingen in te plannen in zijn agenda, geef dan je advies EN voeg aan het einde toe:
+CALENDAR_EVENTS:
+[{"title":"Duurloop 30 min","description":"Zone 1/2 rustig","date":"2026-04-14","startTime":"07:00","duration":45}]
+
+Gebruik echte datums voor de komende weken. Vandaag is april 2026.`;
+
+let history = [], busy = false, accessToken = null;
+const days = Math.max(0, Math.ceil((new Date("2026-05-31") - new Date()) / 86400000));
+document.getElementById("countdown").textContent = "🎯 " + days + "d → 31 mei";
+
+function connectCalendar() { window.location.href = "/api/auth/signin/google"; }
+
+async function checkAuth() {
+  try {
+    const r = await fetch("/api/auth/session");
+    const d = await r.json();
+    if (d && d.accessToken) {
+      accessToken = d.accessToken;
+      document.getElementById("cal-status").textContent = "✅ Agenda gekoppeld";
+      document.getElementById("cal-btn").textContent = "✅ Gekoppeld";
+    }
+  } catch(e) {}
+}
+checkAuth();
+
+async function addToCalendar(events) {
+  if (!accessToken) { connectCalendar(); return; }
+  let added = 0;
+  for (const ev of events) {
+    const start = new Date(ev.date + "T" + ev.startTime + ":00");
+    const end = new Date(start.getTime() + ev.duration * 60000);
+    try {
+      const r = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken, event: { title: ev.title, description: ev.description, start: start.toISOString(), end: end.toISOString() } })
+      });
+      const d = await r.json();
+      if (d.success) added++;
+    } catch(e) {}
+  }
+  addMsg("ai", "✅ " + added + " training(en) toegevoegd aan je Google Agenda!");
+}
+
+async function send(text) {
+  const inp = document.getElementById("inp");
+  const msg = (text || inp.value).trim();
+  if (!msg || busy) return;
+  inp.value = ""; busy = true;
+  document.getElementById("send").disabled = true;
+  addMsg("user", msg);
+  history.push({ role: "user", content: msg });
+  document.getElementById("typing").style.display = "flex";
+  scrollBottom();
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: history, system: SYSTEM })
+    });
+    const d = await r.json();
+    let reply = d.reply || d.error || "Geen antwoord";
+    history.push({ role: "assistant", content: reply });
+    document.getElementById("typing").style.display = "none";
+    if (reply.includes("CALENDAR_EVENTS:")) {
+      const parts = reply.split("CALENDAR_EVENTS:");
+      addMsg("ai", parts[0].trim(), parts[1]);
+    } else {
+      addMsg("ai", reply);
+    }
+  } catch(e) {
+    document.getElementById("typing").style.display = "none";
+    addMsg("ai", "Fout: " + e.message);
+  }
+  busy = false;
+  document.getElementById("send").disabled = false;
+}
+
+function addMsg(role, text, calendarData) {
+  const msgs = document.getElementById("msgs");
+  const div = document.createElement("div");
+  div.className = "msg " + (role === "user" ? "user" : "ai");
+  let html = '<div class="msg-name">' + (role === "user" ? "Martin" : "Coach") + "</div>";
+  html += '<div class="msg-bubble">' + text.replace(/</g,"&lt;") + "</div>";
+  if (calendarData) {
+    try {
+      const events = JSON.parse(calendarData.trim());
+      html += '<button class="plan-btn" onclick=\'addToCalendar(' + JSON.stringify(events).replace(/'/g,"&#39;") + ')\'>📅 Zet ' + events.length + ' training(en) in agenda</button>';
+    } catch(e) {}
+  }
+  div.innerHTML = html;
+  msgs.insertBefore(div, document.getElementById("typing"));
+  scrollBottom();
+}
+
+function scrollBottom() { document.getElementById("msgs").scrollTop = document.getElementById("msgs").scrollHeight; }
+</script>
+</body>
+</html>
