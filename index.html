@@ -7,7 +7,11 @@
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0c0f; color: #dde4ee; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
-#header { background: #12161b; border-bottom: 1px solid #252d38; padding: 11px 16px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+#header { background: #12161b; border-bottom: 1px solid #252d38; padding: 11px 16px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 8px; }
+#history-bar { background: #12161b; border-bottom: 1px solid #252d38; padding: 6px 14px; display: flex; gap: 6px; overflow-x: auto; flex-shrink: 0; }
+.hist-btn { flex-shrink: 0; background: #1a2028; border: 1px solid #252d38; color: #6b7a8d; font-size: 11px; padding: 4px 10px; border-radius: 14px; cursor: pointer; white-space: nowrap; }
+.hist-btn:hover { border-color: #e8512a; color: #dde4ee; }
+#new-btn { flex-shrink: 0; background: #e8512a; border: none; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 14px; cursor: pointer; white-space: nowrap; }
 #msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .msg { max-width: 88%; }
 .msg.user { align-self: flex-end; }
@@ -39,6 +43,9 @@ textarea:focus { border-color: #e8512a; }
   <b style="font-size:17px">Hardloop<span style="color:#e8512a">Agent</span></b>
   <span id="cd" style="background:linear-gradient(135deg,#e8512a,#f0a050);color:#fff;font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px">🎯 ...d → 31 mei</span>
 </div>
+<div id="history-bar">
+  <button id="new-btn" onclick="newChat()">+ Nieuw gesprek</button>
+</div>
 <div id="msgs">
   <div class="msg ai">
     <div class="msg-name">Coach</div>
@@ -66,8 +73,78 @@ Stel me een vraag over je training, voeding of herstel.</div>
 </div>
 <script>
 const SYSTEM = `Je bent een persoonlijke hardloopcoach voor Martin. Doel: 10K op 31 mei 2026. Niveau 50-60 min. Tempo X ~5:30 min/km. Suzanne Brummel methode: 80% rustig zone 1/2, 20% hard zone 4/5. Geen zone 3. Max +10%/week. Sportdrank 500ml: 40g suiker, 10g honing, zout, Mg 150mg, Creatine 3g, BCAA 2g, frambozensiroop. Gebruik bij trainingen meer dan 45 min. Antwoord in het Nederlands. Kort en scanbaar.`;
-let history = [], busy = false;
+const STORAGE_KEY = "hardloop_chats";
+const TTL = 48 * 60 * 60 * 1000;
+let history = [];
+let currentId = null;
+
 document.getElementById("cd").textContent = "🎯 " + Math.max(0,Math.ceil((new Date("2026-05-31")-new Date())/86400000)) + "d → 31 mei";
+
+function getChats() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    const chats = JSON.parse(raw);
+    const now = Date.now();
+    const valid = {};
+    for (const id in chats) {
+      if (now - chats[id].ts < TTL) valid[id] = chats[id];
+    }
+    return valid;
+  } catch(e) { return {}; }
+}
+
+function saveChat() {
+  if (!currentId || history.length === 0) return;
+  const chats = getChats();
+  const firstMsg = history.find(m => m.role === "user");
+  chats[currentId] = {
+    ts: Date.now(),
+    label: firstMsg ? firstMsg.content.slice(0, 30) + "..." : "Gesprek",
+    history: history
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
+  renderHistoryBar();
+}
+
+function renderHistoryBar() {
+  const bar = document.getElementById("history-bar");
+  bar.innerHTML = '<button id="new-btn" onclick="newChat()">+ Nieuw gesprek</button>';
+  const chats = getChats();
+  const sorted = Object.entries(chats).sort((a,b) => b[1].ts - a[1].ts);
+  for (const [id, chat] of sorted) {
+    const btn = document.createElement("button");
+    btn.className = "hist-btn";
+    btn.textContent = chat.label;
+    if (id === currentId) btn.style.borderColor = "#e8512a";
+    btn.onclick = () => loadChat(id);
+    bar.appendChild(btn);
+  }
+}
+
+function loadChat(id) {
+  const chats = getChats();
+  if (!chats[id]) return;
+  currentId = id;
+  history = chats[id].history;
+  const msgs = document.getElementById("msgs");
+  msgs.innerHTML = '<div id="typing" class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
+  for (const m of history) addMsg(m.role === "user" ? "user" : "ai", m.content);
+  renderHistoryBar();
+}
+
+function newChat() {
+  currentId = Date.now().toString();
+  history = [];
+  const msgs = document.getElementById("msgs");
+  msgs.innerHTML = '<div class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble">Hoi Martin! 🏃 Nieuw gesprek gestart. Stel me een vraag!</div></div><div id="typing" class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
+  renderHistoryBar();
+}
+
+// Init
+currentId = Date.now().toString();
+renderHistoryBar();
+
 async function send(t) {
   const inp = document.getElementById("inp");
   const msg = (t||inp.value).trim();
@@ -85,6 +162,7 @@ async function send(t) {
     history.push({role:"assistant",content:reply});
     document.getElementById("typing").style.display = "none";
     addMsg("ai", reply);
+    saveChat();
   } catch(e) {
     document.getElementById("typing").style.display = "none";
     addMsg("ai", "Fout: "+e.message);
@@ -92,6 +170,9 @@ async function send(t) {
   busy = false;
   document.getElementById("sendbtn").disabled = false;
 }
+
+let busy = false;
+
 function addMsg(role, text) {
   const msgs = document.getElementById("msgs");
   const div = document.createElement("div");
@@ -100,6 +181,7 @@ function addMsg(role, text) {
   msgs.insertBefore(div, document.getElementById("typing"));
   scroll();
 }
+
 function scroll() { const m=document.getElementById("msgs"); m.scrollTop=m.scrollHeight; }
 </script>
 </body>
