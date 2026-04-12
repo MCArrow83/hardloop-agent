@@ -8,10 +8,12 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #0a0c0f; color: #dde4ee; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
 #header { background: #12161b; border-bottom: 1px solid #252d38; padding: 11px 16px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; gap: 8px; }
+#cal-bar { background: #12161b; border-bottom: 1px solid #252d38; padding: 6px 14px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+#cal-btn { background: #fff; color: #333; border: none; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 14px; cursor: pointer; }
+#cal-status { font-size: 11px; color: #6b7a8d; }
 #history-bar { background: #12161b; border-bottom: 1px solid #252d38; padding: 6px 14px; display: flex; gap: 6px; overflow-x: auto; flex-shrink: 0; }
 .hist-btn { flex-shrink: 0; background: #1a2028; border: 1px solid #252d38; color: #6b7a8d; font-size: 11px; padding: 4px 10px; border-radius: 14px; cursor: pointer; white-space: nowrap; }
-.hist-btn:hover { border-color: #e8512a; color: #dde4ee; }
-#new-btn { flex-shrink: 0; background: #e8512a; border: none; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 14px; cursor: pointer; white-space: nowrap; }
+#new-btn { flex-shrink: 0; background: #e8512a; border: none; color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 14px; cursor: pointer; }
 #msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
 .msg { max-width: 88%; }
 .msg.user { align-self: flex-end; }
@@ -22,6 +24,7 @@ body { background: #0a0c0f; color: #dde4ee; font-family: system-ui, sans-serif; 
 .msg-bubble { border-radius: 12px; padding: 10px 13px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .msg.user .msg-bubble { background: #1e2d3d; border: 1px solid #2a3f55; border-bottom-right-radius: 3px; }
 .msg.ai .msg-bubble { background: #12161b; border: 1px solid #252d38; border-bottom-left-radius: 3px; }
+.plan-btn { margin-top: 8px; background: linear-gradient(135deg,#e8512a,#f0a050); border: none; color: #fff; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 8px; cursor: pointer; display: block; }
 #typing { align-self: flex-start; display: none; }
 #typing .msg-bubble { display: flex; gap: 5px; align-items: center; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #6b7a8d; animation: b 1.2s infinite; }
@@ -43,6 +46,10 @@ textarea:focus { border-color: #e8512a; }
   <b style="font-size:17px">Hardloop<span style="color:#e8512a">Agent</span></b>
   <span id="cd" style="background:linear-gradient(135deg,#e8512a,#f0a050);color:#fff;font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px">🎯 ...d → 31 mei</span>
 </div>
+<div id="cal-bar">
+  <button id="cal-btn" onclick="connectCalendar()">📅 Koppel Google Agenda</button>
+  <span id="cal-status">Niet gekoppeld</span>
+</div>
 <div id="history-bar">
   <button id="new-btn" onclick="newChat()">+ Nieuw gesprek</button>
 </div>
@@ -51,7 +58,9 @@ textarea:focus { border-color: #e8512a; }
     <div class="msg-name">Coach</div>
     <div class="msg-bubble">Hoi Martin! 🏃 Ik ben je hardloopcoach.
 
-Stel me een vraag over je training, voeding of herstel.</div>
+Koppel je Google Agenda bovenaan — dan plan ik trainingen direct in!
+
+Of stel me een vraag over je training, voeding of herstel.</div>
   </div>
   <div id="typing" class="msg ai">
     <div class="msg-name">Coach</div>
@@ -60,7 +69,7 @@ Stel me een vraag over je training, voeding of herstel.</div>
 </div>
 <div id="bottom">
   <div id="quick">
-    <button onclick="send('Maak een trainingsschema voor de komende week richting 31 mei')">📈 Schema</button>
+    <button onclick="send('Maak een trainingsschema voor de komende week richting 31 mei en plan deze in mijn agenda')">📅 Plan schema in agenda</button>
     <button onclick="send('Wat moet ik eten op wedstrijddag 31 mei?')">🍌 Wedstrijddag</button>
     <button onclick="send('Wanneer gebruik ik mijn sportdrank?')">💧 Sportdrank</button>
     <button onclick="send('Hoe voorkom ik blessures?')">🦵 Blessures</button>
@@ -72,13 +81,57 @@ Stel me een vraag over je training, voeding of herstel.</div>
   </div>
 </div>
 <script>
-const SYSTEM = `Je bent een persoonlijke hardloopcoach voor Martin. Doel: 10K op 31 mei 2026. Niveau 50-60 min. Tempo X ~5:30 min/km. Suzanne Brummel methode: 80% rustig zone 1/2, 20% hard zone 4/5. Geen zone 3. Max +10%/week. Sportdrank 500ml: 40g suiker, 10g honing, zout, Mg 150mg, Creatine 3g, BCAA 2g, frambozensiroop. Gebruik bij trainingen meer dan 45 min. Antwoord in het Nederlands. Kort en scanbaar.`;
+const SYSTEM = `Je bent een persoonlijke hardloopcoach voor Martin. Doel: 10K op 31 mei 2026. Niveau 50-60 min. Tempo X ~5:30 min/km. Suzanne Brummel methode: 80% rustig zone 1/2, 20% hard zone 4/5. Geen zone 3. Max +10%/week. Sportdrank 500ml: 40g suiker, 10g honing, zout, Mg 150mg, Creatine 3g, BCAA 2g, frambozensiroop. Gebruik bij trainingen meer dan 45 min. Antwoord in het Nederlands. Kort en scanbaar.
+
+Als Martin vraagt om trainingen in te plannen, geef dan je advies EN voeg EXACT dit formaat toe aan het einde:
+CALENDAR_EVENTS:
+[{"title":"Duurloop 30 min","description":"Zone 1/2 rustig lopen","date":"2026-04-14","startTime":"07:00","duration":45}]
+
+Gebruik echte datums voor de komende weken vanaf vandaag.`;
+
 const STORAGE_KEY = "hardloop_chats";
 const TTL = 48 * 60 * 60 * 1000;
-let history = [];
-let currentId = null;
+let history = [], busy = false, currentId = null;
+let accessToken = localStorage.getItem("cal_token") || null;
 
 document.getElementById("cd").textContent = "🎯 " + Math.max(0,Math.ceil((new Date("2026-05-31")-new Date())/86400000)) + "d → 31 mei";
+
+// Check token in URL
+const urlParams = new URLSearchParams(window.location.search);
+const urlToken = urlParams.get("token");
+if (urlToken) {
+  accessToken = urlToken;
+  localStorage.setItem("cal_token", urlToken);
+  window.history.replaceState({}, "", "/");
+}
+
+if (accessToken) {
+  document.getElementById("cal-status").textContent = "✅ Agenda gekoppeld";
+  document.getElementById("cal-btn").textContent = "✅ Gekoppeld";
+}
+
+function connectCalendar() {
+  window.location.href = "/api/auth";
+}
+
+async function addToCalendar(events) {
+  if (!accessToken) { connectCalendar(); return; }
+  let added = 0;
+  for (const ev of events) {
+    const start = new Date(ev.date + "T" + ev.startTime + ":00");
+    const end = new Date(start.getTime() + ev.duration * 60000);
+    try {
+      const r = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken, event: { title: ev.title, description: ev.description, start: start.toISOString(), end: end.toISOString() } })
+      });
+      const d = await r.json();
+      if (d.success) added++;
+    } catch(e) {}
+  }
+  addMsg("ai", "✅ " + added + " training(en) toegevoegd aan je Google Agenda!");
+}
 
 function getChats() {
   try {
@@ -98,11 +151,7 @@ function saveChat() {
   if (!currentId || history.length === 0) return;
   const chats = getChats();
   const firstMsg = history.find(m => m.role === "user");
-  chats[currentId] = {
-    ts: Date.now(),
-    label: firstMsg ? firstMsg.content.slice(0, 30) + "..." : "Gesprek",
-    history: history
-  };
+  chats[currentId] = { ts: Date.now(), label: firstMsg ? firstMsg.content.slice(0,30)+"..." : "Gesprek", history };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(chats));
   renderHistoryBar();
 }
@@ -129,7 +178,7 @@ function loadChat(id) {
   history = chats[id].history;
   const msgs = document.getElementById("msgs");
   msgs.innerHTML = '<div id="typing" class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
-  for (const m of history) addMsg(m.role === "user" ? "user" : "ai", m.content);
+  for (const m of history) addMsg(m.role==="user"?"user":"ai", m.content);
   renderHistoryBar();
 }
 
@@ -137,11 +186,10 @@ function newChat() {
   currentId = Date.now().toString();
   history = [];
   const msgs = document.getElementById("msgs");
-  msgs.innerHTML = '<div class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble">Hoi Martin! 🏃 Nieuw gesprek gestart. Stel me een vraag!</div></div><div id="typing" class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
+  msgs.innerHTML = '<div class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble">Hoi Martin! Nieuw gesprek. Stel me een vraag! 🏃</div></div><div id="typing" class="msg ai"><div class="msg-name">Coach</div><div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
   renderHistoryBar();
 }
 
-// Init
 currentId = Date.now().toString();
 renderHistoryBar();
 
@@ -158,10 +206,15 @@ async function send(t) {
   try {
     const r = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:history,system:SYSTEM})});
     const d = await r.json();
-    const reply = d.reply || d.error || "Geen antwoord";
+    let reply = d.reply || d.error || "Geen antwoord";
     history.push({role:"assistant",content:reply});
     document.getElementById("typing").style.display = "none";
-    addMsg("ai", reply);
+    if (reply.includes("CALENDAR_EVENTS:")) {
+      const parts = reply.split("CALENDAR_EVENTS:");
+      addMsg("ai", parts[0].trim(), parts[1]);
+    } else {
+      addMsg("ai", reply);
+    }
     saveChat();
   } catch(e) {
     document.getElementById("typing").style.display = "none";
@@ -171,18 +224,24 @@ async function send(t) {
   document.getElementById("sendbtn").disabled = false;
 }
 
-let busy = false;
-
-function addMsg(role, text) {
+function addMsg(role, text, calendarData) {
   const msgs = document.getElementById("msgs");
   const div = document.createElement("div");
   div.className = "msg " + (role==="user"?"user":"ai");
-  div.innerHTML = '<div class="msg-name">'+(role==="user"?"Martin":"Coach")+'</div><div class="msg-bubble">'+text.replace(/</g,"&lt;")+'</div>';
+  let html = '<div class="msg-name">'+(role==="user"?"Martin":"Coach")+'</div>';
+  html += '<div class="msg-bubble">'+text.replace(/</g,"&lt;")+'</div>';
+  if (calendarData) {
+    try {
+      const events = JSON.parse(calendarData.trim());
+      html += '<button class="plan-btn" onclick=\'addToCalendar('+JSON.stringify(events).replace(/'/g,"&#39;")+')\'>📅 Zet '+events.length+' training(en) in agenda</button>';
+    } catch(e) {}
+  }
+  div.innerHTML = html;
   msgs.insertBefore(div, document.getElementById("typing"));
   scroll();
 }
 
-function scroll() { const m=document.getElementById("msgs"); m.scrollTop=m.scrollHeight; }
+function scroll() { document.getElementById("msgs").scrollTop = document.getElementById("msgs").scrollHeight; }
 </script>
 </body>
 </html>
