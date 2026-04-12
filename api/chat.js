@@ -3,6 +3,8 @@ export const config = { runtime: "edge" };
 export default async function handler(req) {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
   const { messages, system } = await req.json();
+  const now = new Date().toLocaleString("nl-NL", { timeZone: "Europe/Amsterdam" });
+  const systemWithDate = `${system}\n\nHuidige datum en tijd: ${now}`;
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -10,7 +12,7 @@ export default async function handler(req) {
       "x-api-key": process.env.ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
     },
-    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 800, system, messages }),
+    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 800, system: systemWithDate, messages }),
   });
   const data = await r.json();
   if (!r.ok) return new Response(JSON.stringify({ error: data?.error?.message }), { status: 500, headers: { "Content-Type": "application/json" } });
