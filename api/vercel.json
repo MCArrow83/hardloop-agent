@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/api/chat", "destination": "/api/chat.js" },
+    { "source": "/api/calendar", "destination": "/api/calendar.js" },
+    { "source": "/api/auth/(.*)", "destination": "/api/auth/[...nextauth].js" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
