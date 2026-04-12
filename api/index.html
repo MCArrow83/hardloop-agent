@@ -55,3 +55,52 @@ Stel me een vraag over je training, voeding of herstel.</div>
   <div id="quick">
     <button onclick="send('Maak een trainingsschema voor de komende week richting 31 mei')">📈 Schema</button>
     <button onclick="send('Wat moet ik eten op wedstrijddag 31 mei?')">🍌 Wedstrijddag</button>
+    <button onclick="send('Wanneer gebruik ik mijn sportdrank?')">💧 Sportdrank</button>
+    <button onclick="send('Hoe voorkom ik blessures?')">🦵 Blessures</button>
+    <button onclick="send('Wanneer start ik met tapering?')">📅 Tapering</button>
+  </div>
+  <div id="input-row">
+    <textarea id="inp" rows="2" placeholder="Stel een vraag..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+    <button id="sendbtn" onclick="send()">↑</button>
+  </div>
+</div>
+<script>
+const SYSTEM = `Je bent een persoonlijke hardloopcoach voor Martin. Doel: 10K op 31 mei 2026. Niveau 50-60 min. Tempo X ~5:30 min/km. Suzanne Brummel methode: 80% rustig zone 1/2, 20% hard zone 4/5. Geen zone 3. Max +10%/week. Sportdrank 500ml: 40g suiker, 10g honing, zout, Mg 150mg, Creatine 3g, BCAA 2g, frambozensiroop. Gebruik bij trainingen meer dan 45 min. Antwoord in het Nederlands. Kort en scanbaar.`;
+let history = [], busy = false;
+document.getElementById("cd").textContent = "🎯 " + Math.max(0,Math.ceil((new Date("2026-05-31")-new Date())/86400000)) + "d → 31 mei";
+async function send(t) {
+  const inp = document.getElementById("inp");
+  const msg = (t||inp.value).trim();
+  if (!msg||busy) return;
+  inp.value = ""; busy = true;
+  document.getElementById("sendbtn").disabled = true;
+  addMsg("user", msg);
+  history.push({role:"user",content:msg});
+  document.getElementById("typing").style.display = "flex";
+  scroll();
+  try {
+    const r = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:history,system:SYSTEM})});
+    const d = await r.json();
+    const reply = d.reply || d.error || "Geen antwoord";
+    history.push({role:"assistant",content:reply});
+    document.getElementById("typing").style.display = "none";
+    addMsg("ai", reply);
+  } catch(e) {
+    document.getElementById("typing").style.display = "none";
+    addMsg("ai", "Fout: "+e.message);
+  }
+  busy = false;
+  document.getElementById("sendbtn").disabled = false;
+}
+function addMsg(role, text) {
+  const msgs = document.getElementById("msgs");
+  const div = document.createElement("div");
+  div.className = "msg " + (role==="user"?"user":"ai");
+  div.innerHTML = '<div class="msg-name">'+(role==="user"?"Martin":"Coach")+'</div><div class="msg-bubble">'+text.replace(/</g,"&lt;")+'</div>';
+  msgs.insertBefore(div, document.getElementById("typing"));
+  scroll();
+}
+function scroll() { const m=document.getElementById("msgs"); m.scrollTop=m.scrollHeight; }
+</script>
+</body>
+</html>
