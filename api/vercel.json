@@ -1,8 +1,11 @@
 {
-  "outputDirectory": "public",
-  "rewrites": [
-    { "source": "/api/chat", "destination": "/api/chat.js" },
-    { "source": "/api/calendar", "destination": "/api/calendar.js" },
-    { "source": "/api/auth/(.*)", "destination": "/api/auth/[...nextauth].js" }
+  "version": 2,
+  "builds": [
+    { "src": "public/index.html", "use": "@vercel/static" },
+    { "src": "api/**/*.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+    { "src": "/(.*)", "dest": "/public/index.html" }
   ]
 }
