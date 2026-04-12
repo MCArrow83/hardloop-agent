@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HardloopAgent — Martin</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a0c0f; color: #dde4ee; font-family: system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+#header { background: #12161b; border-bottom: 1px solid #252d38; padding: 11px 16px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+#msgs { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 88%; }
+.msg.user { align-self: flex-end; }
+.msg.ai { align-self: flex-start; }
+.msg-name { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 3px; }
+.msg.user .msg-name { color: #4a90c8; text-align: right; }
+.msg.ai .msg-name { color: #e8512a; }
+.msg-bubble { border-radius: 12px; padding: 10px 13px; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.msg.user .msg-bubble { background: #1e2d3d; border: 1px solid #2a3f55; border-bottom-right-radius: 3px; }
+.msg.ai .msg-bubble { background: #12161b; border: 1px solid #252d38; border-bottom-left-radius: 3px; }
+#typing { align-self: flex-start; display: none; }
+#typing .msg-bubble { display: flex; gap: 5px; align-items: center; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #6b7a8d; animation: b 1.2s infinite; }
+.dot:nth-child(2) { animation-delay: 0.2s; }
+.dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes b { 0%,100%{opacity:.3}50%{opacity:1} }
+#bottom { background: #12161b; border-top: 1px solid #252d38; padding: 8px 14px 16px; flex-shrink: 0; }
+#quick { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 10px; padding-bottom: 2px; }
+#quick button { flex-shrink: 0; background: #1a2028; border: 1px solid #252d38; color: #6b7a8d; font-size: 11px; padding: 5px 11px; border-radius: 16px; cursor: pointer; white-space: nowrap; }
+#input-row { display: flex; gap: 8px; }
+textarea { flex: 1; background: #1a2028; border: 1px solid #252d38; color: #dde4ee; font-size: 13px; padding: 9px 12px; border-radius: 10px; resize: none; font-family: system-ui; outline: none; }
+textarea:focus { border-color: #e8512a; }
+#sendbtn { background: linear-gradient(135deg,#e8512a,#f0a050); border: none; color: #fff; font-weight: 800; font-size: 20px; padding: 0 15px; border-radius: 10px; cursor: pointer; }
+#sendbtn:disabled { background: #1a2028; color: #6b7a8d; }
+</style>
+</head>
+<body>
+<div id="header">
+  <b style="font-size:17px">Hardloop<span style="color:#e8512a">Agent</span></b>
+  <span id="cd" style="background:linear-gradient(135deg,#e8512a,#f0a050);color:#fff;font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px">🎯 ...d → 31 mei</span>
+</div>
+<div id="msgs">
+  <div class="msg ai">
+    <div class="msg-name">Coach</div>
+    <div class="msg-bubble">Hoi Martin! 🏃 Ik ben je hardloopcoach.
+
+Stel me een vraag over je training, voeding of herstel.</div>
+  </div>
+  <div id="typing" class="msg ai">
+    <div class="msg-name">Coach</div>
+    <div class="msg-bubble"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+  </div>
+</div>
+<div id="bottom">
+  <div id="quick">
+    <button onclick="send('Maak een trainingsschema voor de komende week richting 31 mei')">📈 Schema</button>
+    <button onclick="send('Wat moet ik eten op wedstrijddag 31 mei?')">🍌 Wedstrijddag</button>
+    <button onclick="send('Wanneer gebruik ik mijn sportdrank?')">💧 Sportdrank</button>
+    <button onclick="send('Hoe voorkom ik blessures?')">🦵 Blessures</button>
+    <button onclick="send('Wanneer start ik met tapering?')">📅 Tapering</button>
+  </div>
+  <div id="input-row">
+    <textarea id="inp" rows="2" placeholder="Stel een vraag..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
+    <button id="sendbtn" onclick="send()">↑</button>
+  </div>
+</div>
+<script>
+const SYSTEM = `Je bent een persoonlijke hardloopcoach voor Martin. Doel: 10K op 31 mei 2026. Niveau 50-60 min. Tempo X ~5:30 min/km. Suzanne Brummel methode: 80% rustig zone 1/2, 20% hard zone 4/5. Geen zone 3. Max +10%/week. Sportdrank 500ml: 40g suiker, 10g honing, zout, Mg 150mg, Creatine 3g, BCAA 2g, frambozensiroop. Gebruik bij trainingen meer dan 45 min. Antwoord in het Nederlands. Kort en scanbaar.`;
+let history = [], busy = false;
+document.getElementById("cd").textContent = "🎯 " + Math.max(0,Math.ceil((new Date("2026-05-31")-new Date())/86400000)) + "d → 31 mei";
+async function send(t) {
+  const inp = document.getElementById("inp");
+  const msg = (t||inp.value).trim();
+  if (!msg||busy) return;
+  inp.value = ""; busy = true;
+  document.getElementById("sendbtn").disabled = true;
+  addMsg("user", msg);
+  history.push({role:"user",content:msg});
+  document.getElementById("typing").style.display = "flex";
+  scroll();
+  try {
+    const r = await fetch("/api/chat", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:history,system:SYSTEM})});
+    const d = await r.json();
+    const reply = d.reply || d.error || "Geen antwoord";
+    history.push({role:"assistant",content:reply});
+    document.getElementById("typing").style.display = "none";
+    addMsg("ai", reply);
+  } catch(e) {
+    document.getElementById("typing").style.display = "none";
+    addMsg("ai", "Fout: "+e.message);
+  }
+  busy = false;
+  document.getElementById("sendbtn").disabled = false;
+}
+function addMsg(role, text) {
+  const msgs = document.getElementById("msgs");
+  const div = document.createElement("div");
+  div.className = "msg " + (role==="user"?"user":"ai");
+  div.innerHTML = '<div class="msg-name">'+(role==="user"?"Martin":"Coach")+'</div><div class="msg-bubble">'+text.replace(/</g,"&lt;")+'</div>';
+  msgs.insertBefore(div, document.getElementById("typing"));
+  scroll();
+}
+function scroll() { const m=document.getElementById("msgs"); m.scrollTop=m.scrollHeight; }
+</script>
+</body>
+</html>
