@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -67,9 +66,14 @@ textarea:focus { border-color: #e8512a; }
 <div id="garmin-modal">
   <div id="garmin-modal-inner">
     <h3>⌚ Koppel Garmin Connect</h3>
-    <p>Jouw inloggegevens worden <b>alleen in deze browsersessie</b> bewaard en nooit opgeslagen op een server.</p>
-    <input type="email" id="g-email" placeholder="Garmin e-mailadres" autocomplete="username" />
-    <input type="password" id="g-pass" placeholder="Wachtwoord" autocomplete="current-password" />
+    <p style="line-height:1.6">
+      <b>Stap 1:</b> Ga naar <b>connect.garmin.com</b> en log in<br>
+      <b>Stap 2:</b> Druk F12 → tabblad <b>Application</b> → Cookies → connect.garmin.com<br>
+      <b>Stap 3:</b> Kopieer de waarde van <b>JWT_WEB</b><br>
+      <b>Stap 4:</b> Kopieer de waarde van <b>SESSIONID</b>
+    </p>
+    <input type="text" id="g-jwt" placeholder="JWT_WEB waarde (lange tekst)" autocomplete="off" style="font-size:11px" />
+    <input type="text" id="g-session" placeholder="SESSIONID waarde" autocomplete="off" style="font-size:11px" />
     <div id="garmin-login-status"></div>
     <div class="modal-row">
       <button class="modal-btn secondary" onclick="closeGarminModal()">Annuleren</button>
@@ -142,9 +146,10 @@ const TTL = 48 * 60 * 60 * 1000;
 let history = [], busy = false, currentId = null;
 let accessToken = localStorage.getItem("cal_token") || null;
 
-// Garmin creds — sessionStorage zodat ze verdwijnen als tabblad sluit
-let garminEmail = sessionStorage.getItem("g_email") || null;
-let garminPass = sessionStorage.getItem("g_pass") || null;
+// Garmin cookies — sessionStorage zodat ze verdwijnen als tabblad sluit
+let garminJwt = sessionStorage.getItem("g_jwt") || null;
+let garminSession = sessionStorage.getItem("g_session") || null;
+let garminEmail = garminJwt ? "gekoppeld" : null;
 
 document.getElementById("cd").textContent = "🎯 " + Math.max(0,Math.ceil((new Date("2026-05-31")-new Date())/86400000)) + "d → 31 mei";
 
@@ -165,17 +170,16 @@ function updateStatusBar() {
     document.getElementById("cal-btn").textContent = "✅ Agenda";
     statuses.push("📅 Google Agenda gekoppeld");
   }
-  if (garminEmail) {
+  if (garminJwt) {
     document.getElementById("garmin-btn").textContent = "✅ Garmin";
     document.getElementById("garmin-btn").classList.add("connected");
-    statuses.push("⌚ Garmin: " + garminEmail);
+    statuses.push("⌚ Garmin gekoppeld");
   }
   document.getElementById("cal-status").textContent = statuses.join("  •  ");
 }
 
 // --- Garmin modal ---
 function openGarminModal() {
-  if (garminEmail) document.getElementById("g-email").value = garminEmail;
   document.getElementById("garmin-login-status").textContent = "";
   document.getElementById("garmin-modal").classList.add("open");
 }
@@ -183,20 +187,21 @@ function closeGarminModal() {
   document.getElementById("garmin-modal").classList.remove("open");
 }
 function saveGarminCreds() {
-  const email = document.getElementById("g-email").value.trim();
-  const pass = document.getElementById("g-pass").value;
+  const jwt = document.getElementById("g-jwt").value.trim();
+  const session = document.getElementById("g-session").value.trim();
   const status = document.getElementById("garmin-login-status");
-  if (!email || !pass) {
+  if (!jwt || !session) {
     status.className = "err";
-    status.textContent = "Vul e-mail en wachtwoord in.";
+    status.textContent = "Vul beide waarden in.";
     return;
   }
-  sessionStorage.setItem("g_email", email);
-  sessionStorage.setItem("g_pass", pass);
-  garminEmail = email;
-  garminPass = pass;
+  sessionStorage.setItem("g_jwt", jwt);
+  sessionStorage.setItem("g_session", session);
+  garminJwt = jwt;
+  garminSession = session;
+  garminEmail = "gekoppeld";
   status.className = "ok";
-  status.textContent = "✅ Opgeslagen voor deze sessie";
+  status.textContent = "✅ Garmin gekoppeld!";
   updateStatusBar();
   setTimeout(closeGarminModal, 800);
 }
@@ -227,7 +232,7 @@ async function addToCalendar(events) {
 
 // --- Garmin upload ---
 async function uploadToGarmin(workouts) {
-  if (!garminEmail || !garminPass) {
+  if (!garminJwt || !garminSession) {
     openGarminModal();
     return;
   }
@@ -237,8 +242,8 @@ async function uploadToGarmin(workouts) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: garminEmail,
-        password: garminPass,
+        jwtWeb: garminJwt,
+        sessionId: garminSession,
         workouts: workouts
       })
     });
@@ -246,7 +251,7 @@ async function uploadToGarmin(workouts) {
     if (d.success) {
       addMsg("ai", "✅ " + d.uploaded + " workout(s) geüpload naar Garmin Connect!\n\nJe ziet ze in je Garmin agenda. Sync je horloge om ze te downloaden. 🎽");
     } else {
-      addMsg("ai", "❌ Upload mislukt: " + (d.error || "onbekende fout") + "\n\nControleer je Garmin e-mail en wachtwoord.");
+      addMsg("ai", "❌ Upload mislukt: " + (d.error || "onbekende fout") + "\n\nJe sessie is mogelijk verlopen. Klik op ⌚ Garmin en voer nieuwe cookies in.");
     }
   } catch(e) {
     addMsg("ai", "❌ Verbindingsfout: " + e.message);
