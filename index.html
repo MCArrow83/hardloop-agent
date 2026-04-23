@@ -313,6 +313,55 @@ function newChat() {
 currentId = Date.now().toString();
 renderHistoryBar();
 
+// Detecteer of een bericht een trainingsschema is
+function isTrainingSchema(msg, reply) {
+  const garminTriggers = ["garmin", "upload", "klaar voor", "schema naar"];
+  const schemaKeywords = ["duurloop", "interval", "tempoloop", "lange run", "training", "april", "mei", "zone"];
+  const msgLower = msg.toLowerCase();
+  const replyLower = reply.toLowerCase();
+  const isGarminRequest = garminTriggers.some(t => msgLower.includes(t));
+  const hasSchema = schemaKeywords.filter(k => replyLower.includes(k)).length >= 3;
+  return isGarminRequest || hasSchema;
+}
+
+// Tweede API-call: genereer Garmin JSON op basis van het schema
+async function generateGarminJSON(schemaText) {
+  const jsonPrompt = `Zet dit trainingsschema om naar een Garmin JSON array. Antwoord ALLEEN met de JSON array, geen tekst eromheen, geen uitleg, geen markdown. Begin direct met [ en eindig met ].
+
+Schema:
+${schemaText}
+
+Formaat per workout:
+{"workoutName":"naam","description":"omschrijving","sport":"running","scheduledDate":"2026-04-25","steps":[{"type":"warmup","durationType":"time","durationValue":300,"target":{"type":"heart.rate.zone","zoneNumber":1}},{"type":"interval","durationType":"time","durationValue":1800,"target":{"type":"heart.rate.zone","zoneNumber":2}},{"type":"cooldown","durationType":"time","durationValue":300,"target":{"type":"heart.rate.zone","zoneNumber":1}}]}
+
+Regels:
+- Sport: running, cycling, swimming, strength_training, cardio, walking
+- Step types: warmup, interval, recovery, cooldown, rest
+- durationType: time (seconden) of distance (meter)
+- Target: heart.rate.zone (zoneNumber 1-5) of no.target
+- scheduledDate: gebruik de datums uit het schema, formaat YYYY-MM-DD
+- Één workout per trainingsdag
+- Antwoord is ALLEEN de JSON array, niets anders`;
+
+  const r = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: [{ role: "user", content: jsonPrompt }],
+      system: "Je bent een JSON generator. Je antwoordt ALTIJD en ALLEEN met een geldige JSON array. Geen uitleg, geen markdown backticks, geen tekst. Begin met [ en eindig met ]."
+    })
+  });
+  const d = await r.json();
+  let raw = (d.reply || "").trim();
+  // Verwijder eventuele markdown backticks
+  raw = raw.replace(/```json/g,"").replace(/```/g,"").trim();
+  // Zoek de JSON array
+  const start = raw.indexOf("[");
+  const end = raw.lastIndexOf("]");
+  if (start === -1 || end === -1) throw new Error("Geen JSON gevonden");
+  return JSON.parse(raw.slice(start, end + 1));
+}
+
 // --- Main send ---
 async function send(t) {
   const inp = document.getElementById("inp");
@@ -331,22 +380,21 @@ async function send(t) {
     history.push({role:"assistant",content:reply});
     document.getElementById("typing").style.display = "none";
 
-    // Parse both GARMIN_WORKOUTS and CALENDAR_EVENTS blocks
+    // Parse CALENDAR_EVENTS als die aanwezig is
     let displayText = reply;
-    let garminData = null;
     let calendarData = null;
+    let garminData = null;
 
     if (reply.includes("GARMIN_WORKOUTS:")) {
       const parts = reply.split("GARMIN_WORKOUTS:");
       displayText = parts[0].trim();
       const rest = parts[1];
-      // check if calendar also follows
       if (rest.includes("CALENDAR_EVENTS:")) {
         const calParts = rest.split("CALENDAR_EVENTS:");
-        garminData = calParts[0].trim();
+        try { garminData = JSON.parse(calParts[0].trim()); } catch(e) {}
         calendarData = calParts[1].trim();
       } else {
-        garminData = rest.trim();
+        try { garminData = JSON.parse(rest.trim()); } catch(e) {}
       }
     } else if (reply.includes("CALENDAR_EVENTS:")) {
       const parts = reply.split("CALENDAR_EVENTS:");
@@ -354,7 +402,30 @@ async function send(t) {
       calendarData = parts[1].trim();
     }
 
-    addMsg("ai", displayText, calendarData, garminData);
+    // Als geen Garmin JSON maar wel schema-tekst: genereer JSON automatisch
+    const msgLower = msg.toLowerCase();
+    const needsGarmin = ["garmin", "upload", "klaar voor garmin", "schema naar garmin"].some(t => msgLower.includes(t));
+    if (!garminData && needsGarmin) {
+      addMsg("ai", displayText, calendarData, null);
+      // Toon laadindicator voor Garmin JSON
+      const loadDiv = document.createElement("div");
+      loadDiv.className = "msg ai";
+      loadDiv.id = "garmin-loading";
+      loadDiv.innerHTML = '<div class="msg-name">Coach</div><div class="msg-bubble" style="color:#1db9c3">⌚ Workouts klaarzetten voor Garmin...</div>';
+      document.getElementById("msgs").insertBefore(loadDiv, document.getElementById("typing"));
+      scroll();
+      try {
+        const workouts = await generateGarminJSON(displayText);
+        loadDiv.remove();
+        addMsg("ai", "✅ " + workouts.length + " workout(s) klaar voor Garmin!", null, workouts);
+      } catch(e) {
+        loadDiv.remove();
+        addMsg("ai", "❌ JSON genereren mislukt: " + e.message);
+      }
+    } else {
+      addMsg("ai", displayText, calendarData, garminData);
+    }
+
     saveChat();
   } catch(e) {
     document.getElementById("typing").style.display = "none";
@@ -379,10 +450,10 @@ function addMsg(role, text, calendarData, garminData) {
     } catch(e) {}
   }
 
-  // Garmin upload knop
+  // Garmin upload knop — accepteert zowel array als JSON string
   if (garminData) {
     try {
-      const workouts = JSON.parse(garminData.trim());
+      const workouts = Array.isArray(garminData) ? garminData : JSON.parse(garminData.trim());
       html += '<button class="garmin-upload-btn" onclick=\'uploadToGarmin('+JSON.stringify(workouts).replace(/'/g,"&#39;")+')\'>⌚ Upload '+workouts.length+' workout(s) naar Garmin</button>';
     } catch(e) {}
   }
