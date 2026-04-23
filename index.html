@@ -326,40 +326,106 @@ function isTrainingSchema(msg, reply) {
 
 // Tweede API-call: genereer Garmin JSON op basis van het schema
 async function generateGarminJSON(schemaText) {
-  const jsonPrompt = `Zet dit trainingsschema om naar een Garmin JSON array. Antwoord ALLEEN met de JSON array, geen tekst eromheen, geen uitleg, geen markdown. Begin direct met [ en eindig met ].
+  // Extraheer trainingen uit de schematekst
+  const lines = schemaText.split("\n");
+  const workouts = [];
+  let currentDate = null;
+  let currentName = null;
+  let currentType = "duurloop";
 
-Schema:
-${schemaText}
+  // Zoek datums en trainingstypes
+  const dateMap = {
+    "maandag": 1, "dinsdag": 2, "woensdag": 3, "donderdag": 4,
+    "vrijdag": 5, "zaterdag": 6, "zondag": 0
+  };
+  const months = {
+    "januari":0,"februari":1,"maart":2,"april":3,"mei":4,"juni":5,
+    "juli":6,"augustus":7,"september":8,"oktober":9,"november":10,"december":11
+  };
 
-Formaat per workout:
-{"workoutName":"naam","description":"omschrijving","sport":"running","scheduledDate":"2026-04-25","steps":[{"type":"warmup","durationType":"time","durationValue":300,"target":{"type":"heart.rate.zone","zoneNumber":1}},{"type":"interval","durationType":"time","durationValue":1800,"target":{"type":"heart.rate.zone","zoneNumber":2}},{"type":"cooldown","durationType":"time","durationValue":300,"target":{"type":"heart.rate.zone","zoneNumber":1}}]}
+  for (const line of lines) {
+    const l = line.toLowerCase().trim();
+    // Detecteer datum zoals "DONDERDAG 25 APRIL"
+    for (const [day] of Object.entries(dateMap)) {
+      if (l.startsWith(day)) {
+        const parts = l.split(" ");
+        if (parts.length >= 3) {
+          const dayNum = parts[1];
+          const monthName = parts[2];
+          const monthNum = months[monthName];
+          if (monthNum !== undefined && dayNum) {
+            currentDate = `2026-${String(monthNum+1).padStart(2,"0")}-${String(dayNum).padStart(2,"0")}`;
+            currentName = line.trim();
+            currentType = "duurloop";
+          }
+        }
+        break;
+      }
+    }
+    // Detecteer trainingstype
+    if (l.includes("interval")) { currentType = "interval"; currentName = line.trim(); }
+    else if (l.includes("tempoloop") || l.includes("tempo")) { currentType = "tempo"; currentName = line.trim(); }
+    else if (l.includes("lange run") || l.includes("lange loop")) { currentType = "lange"; currentName = line.trim(); }
+    else if (l.includes("duurloop")) { currentType = "duurloop"; currentName = line.trim(); }
 
-Regels:
-- Sport: running, cycling, swimming, strength_training, cardio, walking
-- Step types: warmup, interval, recovery, cooldown, rest
-- durationType: time (seconden) of distance (meter)
-- Target: heart.rate.zone (zoneNumber 1-5) of no.target
-- scheduledDate: gebruik de datums uit het schema, formaat YYYY-MM-DD
-- Één workout per trainingsdag
-- Antwoord is ALLEEN de JSON array, niets anders`;
+    // Sla op als we datum + type hebben
+    if (currentDate && currentName && !workouts.find(w => w.scheduledDate === currentDate)) {
+      let steps, desc, durationTotal;
+      if (currentType === "interval") {
+        steps = [
+          {type:"warmup",durationType:"time",durationValue:600,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:240,target:{type:"heart.rate.zone",zoneNumber:4}},
+          {type:"recovery",durationType:"time",durationValue:90,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:240,target:{type:"heart.rate.zone",zoneNumber:4}},
+          {type:"recovery",durationType:"time",durationValue:90,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:240,target:{type:"heart.rate.zone",zoneNumber:4}},
+          {type:"recovery",durationType:"time",durationValue:90,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"cooldown",durationType:"time",durationValue:600,target:{type:"heart.rate.zone",zoneNumber:1}}
+        ];
+        desc = "Intervaltraining zone 4/5. Sportdrank mee.";
+        durationTotal = 38;
+      } else if (currentType === "tempo") {
+        steps = [
+          {type:"warmup",durationType:"time",durationValue:600,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:420,target:{type:"heart.rate.zone",zoneNumber:4}},
+          {type:"recovery",durationType:"time",durationValue:120,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:420,target:{type:"heart.rate.zone",zoneNumber:4}},
+          {type:"recovery",durationType:"time",durationValue:120,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:420,target:{type:"heart.rate.zone",zoneNumber:4}},
+          {type:"cooldown",durationType:"time",durationValue:600,target:{type:"heart.rate.zone",zoneNumber:1}}
+        ];
+        desc = "Tempoloop zone 4. Sportdrank mee.";
+        durationTotal = 35;
+      } else if (currentType === "lange") {
+        steps = [
+          {type:"warmup",durationType:"time",durationValue:300,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:2700,target:{type:"heart.rate.zone",zoneNumber:2}},
+          {type:"cooldown",durationType:"time",durationValue:300,target:{type:"heart.rate.zone",zoneNumber:1}}
+        ];
+        desc = "Lange duurloop zone 1/2. Sportdrank mee.";
+        durationTotal = 55;
+      } else {
+        steps = [
+          {type:"warmup",durationType:"time",durationValue:300,target:{type:"heart.rate.zone",zoneNumber:1}},
+          {type:"interval",durationType:"time",durationValue:1800,target:{type:"heart.rate.zone",zoneNumber:2}},
+          {type:"cooldown",durationType:"time",durationValue:300,target:{type:"heart.rate.zone",zoneNumber:1}}
+        ];
+        desc = "Duurloop zone 1/2. Rustig tempo 5:00-5:15/km.";
+        durationTotal = 40;
+      }
 
-  const r = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages: [{ role: "user", content: jsonPrompt }],
-      system: "Je bent een JSON generator. Je antwoordt ALTIJD en ALLEEN met een geldige JSON array. Geen uitleg, geen markdown backticks, geen tekst. Begin met [ en eindig met ]."
-    })
-  });
-  const d = await r.json();
-  let raw = (d.reply || "").trim();
-  // Verwijder eventuele markdown backticks
-  raw = raw.replace(/```json/g,"").replace(/```/g,"").trim();
-  // Zoek de JSON array
-  const start = raw.indexOf("[");
-  const end = raw.lastIndexOf("]");
-  if (start === -1 || end === -1) throw new Error("Geen JSON gevonden");
-  return JSON.parse(raw.slice(start, end + 1));
+      workouts.push({
+        workoutName: currentName.replace(/[|├└─]/g,"").trim(),
+        description: desc,
+        sport: "running",
+        scheduledDate: currentDate,
+        steps: steps
+      });
+    }
+  }
+
+  if (workouts.length === 0) throw new Error("Geen trainingen gevonden in schema");
+  return workouts;
 }
 
 // --- Main send ---
