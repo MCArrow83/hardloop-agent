@@ -1,107 +1,108 @@
 // api/garmin.js
-// Uploadt workouts naar Garmin Connect via de inofficiële sessie-API
-// Credentials worden alleen tijdens de request gebruikt en nooit opgeslagen
-
 export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { email, password, workouts } = req.body;
+  const { email, password, workouts } = req.body || {};
   if (!email || !password || !workouts?.length) {
     return res.status(400).json({ error: "email, password en workouts zijn verplicht" });
   }
 
   try {
-    // Stap 1: Login bij Garmin SSO
-    const token = await garminLogin(email, password);
-
-    // Stap 2: Upload elke workout
+    const cookies = await garminLogin(email, password);
     let uploaded = 0;
     const errors = [];
     for (const workout of workouts) {
       try {
-        const workoutId = await createWorkout(token, workout);
-        if (workout.scheduledDate) {
-          await scheduleWorkout(token, workoutId, workout.scheduledDate);
-        }
+        const workoutId = await createWorkout(cookies, workout);
+        if (workout.scheduledDate) await scheduleWorkout(cookies, workoutId, workout.scheduledDate);
         uploaded++;
       } catch (e) {
         errors.push(e.message);
       }
     }
-
-    res.json({ success: true, uploaded, errors });
+    return res.status(200).json({ success: true, uploaded, errors });
   } catch (e) {
-    res.status(401).json({ success: false, error: e.message });
+    return res.status(200).json({ success: false, error: e.message });
   }
 }
 
-// --- Garmin SSO login ---
 async function garminLogin(email, password) {
-  const SSO_URL = "https://sso.garmin.com/sso/signin";
-  const SERVICE_URL = "https://connect.garmin.com/modern/";
-
-  // Stap 1a: Haal CSRF token op
-  const initResp = await fetch(`${SSO_URL}?service=${encodeURIComponent(SERVICE_URL)}&webhost=olaxpw-conctmodern&source=${encodeURIComponent(SERVICE_URL)}&redirectAfterAccountLoginUrl=${encodeURIComponent(SERVICE_URL)}&redirectAfterAccountCreationUrl=${encodeURIComponent(SERVICE_URL)}&gauthHost=${encodeURIComponent(SSO_URL)}&locale=nl_NL&id=gauth-widget&cssUrl=https://static.garmincdn.com/com.garmin.connect/ui/css/gauth-custom-v1.2-min.css&clientId=GarminConnect&rememberMeShown=true&rememberMeChecked=false&createAccountShown=true&openCreateAccount=false&displayNameShown=false&consumeServiceTicket=false&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&generateTwoExtraServiceTickets=false&generateNoServiceTicket=false&displayNameShown=false&globalOptInShown=true&globalOptInChecked=false&mobile=false&connectLegalTerms=true&showTermsOfUse=false&showPrivacyPolicy=false&showConnectLegalAge=false&locationPromptShown=true&showPassword=true&useCustomHeader=false&mfaRequired=false&performMFACheck=false&rememberMyBrowserShown=false&rememberMyBrowserChecked=false`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "Accept": "text/html,application/xhtml+xml",
-    }
+  const SERVICE = "https://connect.garmin.com/modern/";
+  const SSO = "https://sso.garmin.com/sso/signin";
+  const params = new URLSearchParams({
+    service: SERVICE, webhost: "olaxpw-conctmodern", source: SERVICE,
+    redirectAfterAccountLoginUrl: SERVICE, redirectAfterAccountCreationUrl: SERVICE,
+    gauthHost: SSO, locale: "nl_NL", id: "gauth-widget", clientId: "GarminConnect",
+    rememberMeShown: "true", rememberMeChecked: "false", createAccountShown: "true",
+    openCreateAccount: "false", consumeServiceTicket: "false", initialFocus: "true",
+    embedWidget: "false", generateExtraServiceTicket: "true",
+    generateTwoExtraServiceTickets: "false", generateNoServiceTicket: "false",
+    globalOptInShown: "true", globalOptInChecked: "false", mobile: "false",
+    connectLegalTerms: "true", showTermsOfUse: "false", showPrivacyPolicy: "false",
+    showConnectLegalAge: "false", locationPromptShown: "true", showPassword: "true",
+    useCustomHeader: "false", mfaRequired: "false", performMFACheck: "false",
+    rememberMyBrowserShown: "false", rememberMyBrowserChecked: "false"
   });
+  const ssoUrl = `${SSO}?${params}`;
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-  const initHtml = await initResp.text();
-  const csrfMatch = initHtml.match(/name="_csrf"\s+value="([^"]+)"/);
+  // Stap 1: CSRF token ophalen
+  const initResp = await fetch(ssoUrl, {
+    headers: { "User-Agent": UA, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "nl-NL,nl;q=0.9" }
+  });
+  const html = await initResp.text();
+  const csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/);
   const csrf = csrfMatch ? csrfMatch[1] : "";
-  const cookies = initResp.headers.get("set-cookie") || "";
+  const initCookies = parseCookieHeader(initResp.headers.get("set-cookie") || "");
 
-  // Stap 1b: POST login
-  const loginBody = new URLSearchParams({
-    username: email,
-    password: password,
-    embed: "false",
-    _csrf: csrf
-  });
-
-  const loginResp = await fetch(`${SSO_URL}?service=${encodeURIComponent(SERVICE_URL)}&webhost=olaxpw-conctmodern&source=${encodeURIComponent(SERVICE_URL)}&redirectAfterAccountLoginUrl=${encodeURIComponent(SERVICE_URL)}&redirectAfterAccountCreationUrl=${encodeURIComponent(SERVICE_URL)}&gauthHost=${encodeURIComponent(SSO_URL)}&locale=nl_NL&id=gauth-widget&cssUrl=https://static.garmincdn.com/com.garmin.connect/ui/css/gauth-custom-v1.2-min.css&clientId=GarminConnect&rememberMeShown=true&rememberMeChecked=false&createAccountShown=true&openCreateAccount=false&displayNameShown=false&consumeServiceTicket=false&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&generateTwoExtraServiceTickets=false&generateNoServiceTicket=false&displayNameShown=false&globalOptInShown=true&globalOptInChecked=false&mobile=false&connectLegalTerms=true&showTermsOfUse=false&showPrivacyPolicy=false&showConnectLegalAge=false&locationPromptShown=true&showPassword=true&useCustomHeader=false&mfaRequired=false&performMFACheck=false&rememberMyBrowserShown=false&rememberMyBrowserChecked=false`, {
+  // Stap 2: Inloggen
+  const loginResp = await fetch(ssoUrl, {
     method: "POST",
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Cookie": cookies,
-      "Origin": "https://sso.garmin.com",
-      "Referer": SSO_URL
+      "User-Agent": UA, "Content-Type": "application/x-www-form-urlencoded",
+      "Cookie": initCookies, "Origin": "https://sso.garmin.com", "Referer": ssoUrl,
+      "Accept": "text/html,application/xhtml+xml", "Accept-Language": "nl-NL,nl;q=0.9"
     },
-    body: loginBody.toString(),
+    body: new URLSearchParams({ username: email, password, embed: "false", _csrf: csrf }).toString(),
     redirect: "manual"
   });
 
-  // Haal ticket uit redirect
   const location = loginResp.headers.get("location") || "";
   const ticketMatch = location.match(/ticket=([^&]+)/);
   if (!ticketMatch) throw new Error("Login mislukt — controleer e-mail en wachtwoord");
 
   const ticket = ticketMatch[1];
-  const loginCookies = loginResp.headers.get("set-cookie") || "";
+  const loginCookies = mergeCookies(initCookies, parseCookieHeader(loginResp.headers.get("set-cookie") || ""));
 
-  // Stap 1c: Wissel ticket voor Connect sessie
-  const connectResp = await fetch(`${SERVICE_URL}?ticket=${ticket}`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      "Cookie": loginCookies
-    },
+  // Stap 3: Ticket inwisselen
+  const connectResp = await fetch(`${SERVICE}?ticket=${ticket}`, {
+    headers: { "User-Agent": UA, "Cookie": loginCookies, "Accept": "text/html,application/xhtml+xml" },
     redirect: "manual"
   });
+  const allCookies = mergeCookies(loginCookies, parseCookieHeader(connectResp.headers.get("set-cookie") || ""));
 
-  const connectCookies = connectResp.headers.get("set-cookie") || "";
-  const allCookies = [loginCookies, connectCookies].filter(Boolean).join("; ");
-
-  // Haal GARMIN-JWT of session cookie op
-  const sessionMatch = allCookies.match(/GARMIN-SSO-GUID=([^;,]+)/);
-  if (!sessionMatch) throw new Error("Sessie ophalen mislukt");
-
-  return allCookies; // Return alle cookies als auth token
+  if (allCookies.length < 10) throw new Error("Sessie aanmaken mislukt");
+  return allCookies;
 }
 
-// --- Maak workout aan in Garmin Connect ---
+function parseCookieHeader(header) {
+  if (!header) return "";
+  return header.split(/,(?=[^ ].*?=)/).map(c => c.split(";")[0].trim()).filter(Boolean).join("; ");
+}
+
+function mergeCookies(existing, newCookies) {
+  const map = {};
+  for (const part of (existing + "; " + newCookies).split("; ")) {
+    const idx = part.indexOf("=");
+    if (idx > 0) map[part.slice(0, idx).trim()] = part.slice(idx + 1).trim();
+  }
+  return Object.entries(map).map(([k, v]) => `${k}=${v}`).join("; ");
+}
+
 async function createWorkout(cookieString, workout) {
   const sportTypeMap = {
     running: { sportTypeId: 1, sportTypeKey: "running" },
@@ -112,96 +113,73 @@ async function createWorkout(cookieString, workout) {
     yoga: { sportTypeId: 43, sportTypeKey: "yoga" },
     walking: { sportTypeId: 3, sportTypeKey: "walking" }
   };
-
-  const stepTypeMap = {
-    warmup: 1, interval: 3, recovery: 4, cooldown: 2, rest: 5, other: 7
-  };
-
+  const stepTypeMap = { warmup: 1, cooldown: 2, interval: 3, recovery: 4, rest: 5, other: 7 };
   const sport = sportTypeMap[workout.sport] || sportTypeMap.running;
-
   const steps = (workout.steps || []).map((step, i) => {
-    const base = {
-      stepId: i + 1,
-      stepOrder: i + 1,
-      stepType: { stepTypeId: stepTypeMap[step.type] || 3, stepTypeKey: step.type },
+    const s = {
+      stepId: i + 1, stepOrder: i + 1,
+      stepType: { stepTypeId: stepTypeMap[step.type] || 3, stepTypeKey: step.type || "interval" },
       endCondition: {
         conditionTypeId: step.durationType === "distance" ? 3 : 2,
         conditionTypeKey: step.durationType === "distance" ? "distance" : "time",
-        conditionValue: step.durationValue,
-        conditionValueType: null
+        conditionValue: step.durationValue || 600, conditionValueType: null
       },
-      endConditionValue: step.durationValue
+      endConditionValue: step.durationValue || 600
     };
-
-    // Target
     if (step.target?.type === "heart.rate.zone") {
-      base.targetType = { workoutTargetTypeId: 4, workoutTargetTypeKey: "heart.rate.zone" };
-      base.targetValueOne = step.target.zoneNumber;
-      base.targetValueTwo = null;
-    } else if (step.target?.type === "pace.zone") {
-      base.targetType = { workoutTargetTypeId: 6, workoutTargetTypeKey: "pace.zone" };
-      base.targetValueOne = step.target.zoneNumber;
-      base.targetValueTwo = null;
+      s.targetType = { workoutTargetTypeId: 4, workoutTargetTypeKey: "heart.rate.zone" };
+      s.targetValueOne = step.target.zoneNumber || 2;
+      s.targetValueTwo = null;
     } else {
-      base.targetType = { workoutTargetTypeId: 1, workoutTargetTypeKey: "no.target" };
-      base.targetValueOne = null;
-      base.targetValueTwo = null;
+      s.targetType = { workoutTargetTypeId: 1, workoutTargetTypeKey: "no.target" };
+      s.targetValueOne = null; s.targetValueTwo = null;
     }
-
-    return base;
+    return s;
   });
 
   const body = {
-    sportType: sport,
-    subSportType: null,
-    workoutName: workout.workoutName,
+    sportType: sport, subSportType: null,
+    workoutName: workout.workoutName || "Training",
     description: workout.description || "",
-    estimatedDurationInSecs: steps.reduce((acc, s) => acc + (s.endConditionValue || 0), 0),
+    estimatedDurationInSecs: steps.reduce((a, s) => a + (s.endConditionValue || 0), 0),
     estimatedDistanceInMeters: null,
-    workoutSegments: [{
-      segmentOrder: 1,
-      sportType: sport,
-      workoutSteps: steps
-    }]
+    workoutSegments: [{ segmentOrder: 1, sportType: sport, workoutSteps: steps }]
   };
 
   const resp = await fetch("https://connect.garmin.com/workout-service/workout", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "Cookie": cookieString,
-      "NK": "NT",
+      "Content-Type": "application/json", "Cookie": cookieString, "NK": "NT",
       "X-App-Ver": "4.73.1.0",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept": "application/json", "Origin": "https://connect.garmin.com",
+      "Referer": "https://connect.garmin.com/modern/workout/create/running"
     },
     body: JSON.stringify(body)
   });
 
   if (!resp.ok) {
-    const err = await resp.text();
-    throw new Error(`Workout aanmaken mislukt (${resp.status}): ${err.slice(0, 100)}`);
+    const err = await resp.text().catch(() => String(resp.status));
+    throw new Error(`Workout aanmaken mislukt (${resp.status}): ${err.slice(0, 120)}`);
   }
-
   const data = await resp.json();
   return data.workoutId;
 }
 
-// --- Plan workout op een datum ---
 async function scheduleWorkout(cookieString, workoutId, date) {
-  const body = { date };
-
   const resp = await fetch(`https://connect.garmin.com/workout-service/schedule/${workoutId}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      "Cookie": cookieString,
-      "NK": "NT",
+      "Content-Type": "application/json", "Cookie": cookieString, "NK": "NT",
       "X-App-Ver": "4.73.1.0",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      "Accept": "application/json", "Origin": "https://connect.garmin.com"
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ date })
   });
-
-  if (!resp.ok) throw new Error(`Inplannen mislukt (${resp.status})`);
-  return await resp.json();
+  if (!resp.ok) {
+    const err = await resp.text().catch(() => String(resp.status));
+    throw new Error(`Inplannen mislukt (${resp.status}): ${err.slice(0, 80)}`);
+  }
+  return true;
 }
